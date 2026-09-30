@@ -19,6 +19,9 @@
   #ver { font-size: .8rem; color: #64748b; margin-bottom: 8px; letter-spacing: 2px; }
   #scorebar { display: flex; gap: 28px; margin-bottom: 10px; font-size: 1rem; color: #94a3b8; }
   #scorebar b { color: #fbbf24; font-size: 1.2rem; margin-left: 4px; }
+  #diffbar { display: flex; gap: 8px; margin-bottom: 10px; }
+  #diffbar button { background: #334155; color: #e2e8f0; font-size: .85rem; padding: 7px 18px; font-weight: 600; }
+  #diffbar button.active { background: #22c55e; color: #052e16; }
   #wrap { position: relative; width: min(92vw, 420px); }
   canvas {
     display: block; width: 100%; height: auto;
@@ -53,8 +56,13 @@
 </head>
 <body>
   <h1>贪吃蛇</h1>
-  <div id="ver">v1.1.0</div>
+  <div id="ver">v1.2.0</div>
   <div id="scorebar"><span>得分<b id="score">0</b></span><span>最高分<b id="high">0</b></span></div>
+  <div id="diffbar">
+    <button data-d="easy">简单</button>
+    <button data-d="normal">普通</button>
+    <button data-d="hard">困难</button>
+  </div>
   <div id="wrap">
     <canvas id="game" width="400" height="400"></canvas>
     <div id="overlay">
@@ -101,7 +109,19 @@
   high = loadHigh();
   highEl.textContent = high;
 
-  function speed() { return Math.max(70, 150 - score * 3); }
+  var DIFF = {
+    easy:   { base: 190, min: 100, step: 2 },
+    normal: { base: 150, min: 70,  step: 3 },
+    hard:   { base: 120, min: 45,  step: 4 }
+  };
+  var difficulty = 'normal';
+  try { difficulty = localStorage.getItem('snake-difficulty') || 'normal'; } catch (e) {}
+  if (!DIFF[difficulty]) difficulty = 'normal';
+
+  function speed() {
+    var d = DIFF[difficulty];
+    return Math.max(d.min, d.base - score * d.step);
+  }
 
   function placeFood() {
     while (true) {
@@ -256,6 +276,26 @@
       });
     })(dbtns[i]);
   }
+
+  var diffBtns = document.querySelectorAll('#diffbar button');
+  function renderDiff() {
+    for (var i = 0; i < diffBtns.length; i++) {
+      var b = diffBtns[i];
+      if (b.getAttribute('data-d') === difficulty) b.classList.add('active');
+      else b.classList.remove('active');
+    }
+  }
+  for (var k = 0; k < diffBtns.length; k++) {
+    (function (b) {
+      b.addEventListener('click', function () {
+        difficulty = b.getAttribute('data-d');
+        try { localStorage.setItem('snake-difficulty', difficulty); } catch (e) {}
+        renderDiff();
+        start();
+      });
+    })(diffBtns[k]);
+  }
+  renderDiff();
 
   ovBtn.onclick = start;
   pauseBtn.onclick = togglePause;
