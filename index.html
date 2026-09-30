@@ -15,7 +15,8 @@
     -webkit-user-select: none; user-select: none;
     -webkit-tap-highlight-color: transparent;
   }
-  h1 { font-size: 1.4rem; margin: 8px 0 6px; letter-spacing: 2px; }
+  h1 { font-size: 1.4rem; margin: 8px 0 2px; letter-spacing: 2px; }
+  #ver { font-size: .8rem; color: #64748b; margin-bottom: 8px; letter-spacing: 2px; }
   #scorebar { display: flex; gap: 28px; margin-bottom: 10px; font-size: 1rem; color: #94a3b8; }
   #scorebar b { color: #fbbf24; font-size: 1.2rem; margin-left: 4px; }
   #wrap { position: relative; width: min(92vw, 420px); }
@@ -52,6 +53,7 @@
 </head>
 <body>
   <h1>贪吃蛇</h1>
+  <div id="ver">v1.1.0</div>
   <div id="scorebar"><span>得分<b id="score">0</b></span><span>最高分<b id="high">0</b></span></div>
   <div id="wrap">
     <canvas id="game" width="400" height="400"></canvas>
