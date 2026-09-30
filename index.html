@@ -1,0 +1,271 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>贪吃蛇</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { height: 100%; }
+  body {
+    font-family: system-ui, -apple-system, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+    background: #0f172a; color: #e2e8f0;
+    display: flex; flex-direction: column; align-items: center;
+    min-height: 100vh; padding: 12px;
+    -webkit-user-select: none; user-select: none;
+    -webkit-tap-highlight-color: transparent;
+  }
+  h1 { font-size: 1.4rem; margin: 8px 0 6px; letter-spacing: 2px; }
+  #scorebar { display: flex; gap: 28px; margin-bottom: 10px; font-size: 1rem; color: #94a3b8; }
+  #scorebar b { color: #fbbf24; font-size: 1.2rem; margin-left: 4px; }
+  #wrap { position: relative; width: min(92vw, 420px); }
+  canvas {
+    display: block; width: 100%; height: auto;
+    background: #1e293b; border-radius: 10px;
+    touch-action: none;
+    box-shadow: 0 4px 24px rgba(0,0,0,.4);
+  }
+  #overlay {
+    position: absolute; inset: 0;
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    background: rgba(15,23,42,.88); border-radius: 10px; text-align: center; padding: 20px;
+  }
+  #overlay.hidden { display: none; }
+  #overlay h2 { font-size: 1.7rem; margin-bottom: 10px; }
+  #overlay p { margin-bottom: 16px; color: #94a3b8; line-height: 1.6; }
+  button {
+    font-size: 1rem; padding: 10px 26px; border: none; border-radius: 10px;
+    background: #22c55e; color: #052e16; font-weight: 700; cursor: pointer;
+  }
+  button:active { transform: scale(.96); }
+  #btnbar { margin-top: 12px; display: flex; gap: 10px; }
+  #btnbar button { background: #334155; color: #e2e8f0; font-size: .92rem; padding: 9px 20px; font-weight: 600; }
+  #controls {
+    margin-top: 14px; display: grid;
+    grid-template-columns: repeat(3, 66px); grid-template-rows: repeat(3, 66px); gap: 8px;
+    touch-action: none;
+  }
+  .dbtn { background: #334155; color: #e2e8f0; font-size: 1.5rem; padding: 0; border-radius: 14px; }
+  .dbtn:active { background: #475569; }
+  .hint { margin-top: 12px; font-size: .8rem; color: #64748b; text-align: center; line-height: 1.7; }
+</style>
+</head>
+<body>
+  <h1>贪吃蛇</h1>
+  <div id="scorebar"><span>得分<b id="score">0</b></span><span>最高分<b id="high">0</b></span></div>
+  <div id="wrap">
+    <canvas id="game" width="400" height="400"></canvas>
+    <div id="overlay">
+      <h2 id="ovTitle">贪吃蛇</h2>
+      <p id="ovText">吃到食物得分，蛇越长速度越快<br>撞墙或咬到自己就结束</p>
+      <button id="ovBtn">开始</button>
+    </div>
+  </div>
+  <div id="btnbar">
+    <button id="pauseBtn">暂停</button>
+    <button id="restartBtn">重新开始</button>
+  </div>
+  <div id="controls">
+    <span></span><button class="dbtn" data-dir="up" aria-label="上">▲</button><span></span>
+    <button class="dbtn" data-dir="left" aria-label="左">◀</button><span></span><button class="dbtn" data-dir="right" aria-label="右">▶</button>
+    <span></span><button class="dbtn" data-dir="down" aria-label="下">▼</button><span></span>
+  </div>
+  <p class="hint">电脑：方向键 / WASD 移动，空格暂停，回车重开<br>手机：在画面上滑动，或点下方方向按钮</p>
+
+<script>
+(function () {
+  "use strict";
+  var canvas = document.getElementById('game');
+  var ctx = canvas.getContext('2d');
+  var GRID = 20, CELL = 400 / GRID;
+  var scoreEl = document.getElementById('score');
+  var highEl = document.getElementById('high');
+  var overlay = document.getElementById('overlay');
+  var ovTitle = document.getElementById('ovTitle');
+  var ovText = document.getElementById('ovText');
+  var ovBtn = document.getElementById('ovBtn');
+  var pauseBtn = document.getElementById('pauseBtn');
+  var restartBtn = document.getElementById('restartBtn');
+
+  var snake, dir, nextDir, food, score, high, timer, running, paused, over;
+
+  function loadHigh() {
+    try { return parseInt(localStorage.getItem('snake-high-score') || '0', 10) || 0; }
+    catch (e) { return 0; }
+  }
+  function saveHigh() {
+    try { localStorage.setItem('snake-high-score', String(high)); } catch (e) {}
+  }
+  high = loadHigh();
+  highEl.textContent = high;
+
+  function speed() { return Math.max(70, 150 - score * 3); }
+
+  function placeFood() {
+    while (true) {
+      var f = { x: Math.floor(Math.random() * GRID), y: Math.floor(Math.random() * GRID) };
+      var onSnake = snake.some(function (s) { return s.x === f.x && s.y === f.y; });
+      if (!onSnake) { food = f; return; }
+    }
+  }
+
+  function reset() {
+    snake = [{ x: 9, y: 10 }, { x: 8, y: 10 }, { x: 7, y: 10 }];
+    dir = { x: 1, y: 0 };
+    nextDir = { x: 1, y: 0 };
+    score = 0;
+    scoreEl.textContent = '0';
+    placeFood();
+    over = false;
+    paused = false;
+    pauseBtn.textContent = '暂停';
+  }
+
+  function updateScore() {
+    scoreEl.textContent = score;
+    if (score > high) {
+      high = score;
+      highEl.textContent = high;
+      saveHigh();
+    }
+  }
+
+  function draw() {
+    ctx.fillStyle = '#1e293b';
+    ctx.fillRect(0, 0, 400, 400);
+    ctx.fillStyle = '#f87171';
+    ctx.fillRect(food.x * CELL + 2, food.y * CELL + 2, CELL - 4, CELL - 4);
+    for (var i = 0; i < snake.length; i++) {
+      ctx.fillStyle = i === 0 ? '#4ade80' : '#22c55e';
+      ctx.fillRect(snake[i].x * CELL + 1, snake[i].y * CELL + 1, CELL - 2, CELL - 2);
+    }
+  }
+
+  function showOverlay(title, text, btnLabel, action) {
+    ovTitle.textContent = title;
+    ovText.innerHTML = text;
+    ovBtn.textContent = btnLabel;
+    ovBtn.onclick = action;
+    overlay.classList.remove('hidden');
+  }
+  function hideOverlay() { overlay.classList.add('hidden'); }
+
+  function restartTimer() {
+    if (timer) clearInterval(timer);
+    timer = setInterval(tick, speed());
+  }
+
+  function start() {
+    reset();
+    hideOverlay();
+    running = true;
+    restartTimer();
+    draw();
+  }
+
+  function gameOver() {
+    over = true;
+    running = false;
+    if (timer) clearInterval(timer);
+    showOverlay('游戏结束', '得分 ' + score + '，最高分 ' + high, '再来一局', start);
+  }
+
+  function tick() {
+    dir = nextDir;
+    var head = { x: snake[0].x + dir.x, y: snake[0].y + dir.y };
+    var hitWall = head.x < 0 || head.y < 0 || head.x >= GRID || head.y >= GRID;
+    var hitSelf = snake.some(function (s) { return s.x === head.x && s.y === head.y; });
+    if (hitWall || hitSelf) { gameOver(); return; }
+    snake.unshift(head);
+    if (head.x === food.x && head.y === food.y) {
+      score++;
+      updateScore();
+      placeFood();
+      restartTimer();
+    } else {
+      snake.pop();
+    }
+    draw();
+  }
+
+  function togglePause() {
+    if (!running || over) return;
+    paused = !paused;
+    if (paused) {
+      if (timer) clearInterval(timer);
+      pauseBtn.textContent = '继续';
+      showOverlay('已暂停', '休息一下吧', '继续', togglePause);
+    } else {
+      pauseBtn.textContent = '暂停';
+      hideOverlay();
+      restartTimer();
+    }
+  }
+
+  function setDir(x, y) {
+    if (!running || paused || over) return;
+    if (x === -dir.x && y === -dir.y) return;
+    nextDir = { x: x, y: y };
+  }
+
+  var DIRS = { up: [0, -1], down: [0, 1], left: [-1, 0], right: [1, 0] };
+  var KEYS = {
+    ArrowUp: [0, -1], KeyW: [0, -1],
+    ArrowDown: [0, 1], KeyS: [0, 1],
+    ArrowLeft: [-1, 0], KeyA: [-1, 0],
+    ArrowRight: [1, 0], KeyD: [1, 0]
+  };
+
+  document.addEventListener('keydown', function (e) {
+    if (KEYS[e.code]) {
+      setDir(KEYS[e.code][0], KEYS[e.code][1]);
+      e.preventDefault();
+    } else if (e.code === 'Space') {
+      e.preventDefault();
+      if (!running && !over) start();
+      else togglePause();
+    } else if (e.code === 'Enter' || e.code === 'KeyR') {
+      start();
+    } else if (e.code === 'KeyP') {
+      togglePause();
+    }
+  });
+
+  var tsx = 0, tsy = 0;
+  canvas.addEventListener('touchstart', function (e) {
+    var t = e.changedTouches[0];
+    tsx = t.clientX; tsy = t.clientY;
+  }, { passive: true });
+  canvas.addEventListener('touchend', function (e) {
+    var t = e.changedTouches[0];
+    var dx = t.clientX - tsx, dy = t.clientY - tsy;
+    if (Math.abs(dx) < 24 && Math.abs(dy) < 24) return;
+    if (Math.abs(dx) > Math.abs(dy)) setDir(dx > 0 ? 1 : -1, 0);
+    else setDir(0, dy > 0 ? 1 : -1);
+  }, { passive: true });
+
+  var dbtns = document.querySelectorAll('.dbtn');
+  for (var i = 0; i < dbtns.length; i++) {
+    (function (b) {
+      b.addEventListener('pointerdown', function (e) {
+        e.preventDefault();
+        var d = DIRS[b.getAttribute('data-dir')];
+        setDir(d[0], d[1]);
+      });
+    })(dbtns[i]);
+  }
+
+  ovBtn.onclick = start;
+  pauseBtn.onclick = togglePause;
+  restartBtn.onclick = start;
+
+  document.addEventListener('visibilitychange', function () {
+    if (document.hidden && running && !paused && !over) togglePause();
+  });
+
+  reset();
+  draw();
+})();
+</script>
+</body>
+</html>
