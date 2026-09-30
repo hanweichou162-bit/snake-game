@@ -1,0 +1,49 @@
+name: Tag release on main
+on:
+ push:
+   branches: [main]
+permissions:
+ contents: write
+jobs:
+ tag-release:
+   runs-on: ubuntu-latest
+   steps:
+     - name: Checkout
+       uses: actions/checkout@v4.2.2
+       with:
+         fetch-depth: 0
+         fetch-tags: true
+     - name: Read version from CHANGELOG
+       id: version
+       run: |
+         VERSION="$(grep -m1 -oE '^## \[[0-9]+\.[0-9]+\.[0-9]+\]' CHANGELOG.md | grep -oE '[0-9]+\.[0-9]+\.[0-9]+')"
+         if [ -z "$VERSION" ]; then
+           echo "CHANGELOG.md 第一节未找到版本号"
+           exit 1
+         fi
+         echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+     - name: Check if tag already exists
+       id: check
+       run: |
+         if git ls-remote --tags origin "refs/tags/v${{ steps.version.outputs.version }}" | grep -q .; then
+           echo "exists=true" >> "$GITHUB_OUTPUT"
+         else
+           echo "exists=false" >> "$GITHUB_OUTPUT"
+         fi
+     - name: Verify page version matches CHANGELOG
+       if: steps.check.outputs.exists == 'false'
+       run: |
+         if ! grep -q "v${{ steps.version.outputs.version }}" index.html; then
+           echo "页面显示的版本号与 CHANGELOG 不一致（应为 v${{ steps.version.outputs.version }}），不打标记"
+           exit 1
+         fi
+     - name: Create tag and release
+       if: steps.check.outputs.exists == 'false'
+       env:
+         GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+       run: |
+         V="${{ steps.version.outputs.version }}"
+         git tag "v$V"
+         git push origin "v$V"
+         NOTES="$(awk -v v="$V" 'index($0, "## [" v "]")==1 {flag=1; next} /^\#\# \[/ && flag {exit} flag' CHANGELOG.md)"
+         gh release create "v$V" --title "v$V" --notes "$NOTES"
