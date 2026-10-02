@@ -22,6 +22,11 @@
   #diffbar { display: flex; gap: 8px; margin-bottom: 10px; }
   #diffbar button { background: #334155; color: #e2e8f0; font-size: .85rem; padding: 7px 18px; font-weight: 600; }
   #diffbar button.active { background: #22c55e; color: #052e16; }
+  #modebar { display: flex; gap: 8px; margin-bottom: 10px; }
+  #modebar button { background: #334155; color: #e2e8f0; font-size: .85rem; padding: 7px 18px; font-weight: 600; }
+  #modebar button.active { background: #38bdf8; color: #082f49; }
+  #scorebar .p1 b { color: #4ade80; }
+  #scorebar .p2 b { color: #38bdf8; }
   #wrap { position: relative; width: min(92vw, 420px); }
   canvas {
     display: block; width: 100%; height: auto;
@@ -56,8 +61,9 @@
 </head>
 <body>
   <h1>贪吃蛇</h1>
-  <div id="ver">v1.2.0</div>
-  <div id="scorebar"><span>得分<b id="score">0</b></span><span>最高分<b id="high">0</b></span></div>
+  <div id="ver">v1.3.0</div>
+  <div id="modebar"></div>
+  <div id="scorebar"><span id="sb-single">得分<b id="score">0</b></span><span id="sb-high">最高分<b id="high">0</b></span><span id="sb-p1" class="p1" hidden>P1<b id="score1">0</b></span><span id="sb-p2" class="p2" hidden>P2<b id="score2">0</b></span></div>
   <div id="diffbar">
     <button data-d="easy">简单</button>
     <button data-d="normal">普通</button>
@@ -96,6 +102,41 @@
   var ovBtn = document.getElementById('ovBtn');
   var pauseBtn = document.getElementById('pauseBtn');
   var restartBtn = document.getElementById('restartBtn');
+  var score1El = document.getElementById('score1');
+  var score2El = document.getElementById('score2');
+  var modebar = document.getElementById('modebar');
+  var controlsEl = document.getElementById('controls');
+  var hintEl = document.querySelector('.hint');
+
+  // ===== 集中设置：设备 → 可用模式（只改这里，不分散写死在各处）=====
+  // desktop: 单人 + 同屏双人（本地、不联网）
+  // mobile:  单人（第二阶段把 'mobile' 改为 ['single', 'online'] 即上线手机联机）
+  var MODES_BY_DEVICE = {
+    desktop: ['single', 'versus'],
+    mobile: ['single']
+  };
+  var MODE_LABEL = { single: '单人', versus: '双人', online: '双人联机' };
+
+  function detectDevice() {
+    // 判断方法：以主输入是否为触控（pointer: coarse）为准，UA 关键词作兜底；
+    // 返回值只有 'desktop' | 'mobile'，所有模式开关都读它。
+    var coarse = false;
+    try { coarse = window.matchMedia('(pointer: coarse)').matches; } catch (e) {}
+    var ua = '';
+    try { ua = navigator.userAgent || ''; } catch (e2) {}
+    var uaMobile = /Mobi|Android|iPhone|iPad|iPod|Mobile/i.test(ua);
+    return (coarse || uaMobile) ? 'mobile' : 'desktop';
+  }
+  var DEVICE = detectDevice();
+  var AVAILABLE_MODES = MODES_BY_DEVICE[DEVICE] || ['single'];
+  var mode = 'single'; // 'single' | 'versus' | 'online'(第二阶段)
+
+  // 同屏双人配色：P1 绿 / P2 蓝
+  var PCOLORS = [
+    { name: 'P1', body: '#22c55e', head: '#4ade80' },
+    { name: 'P2', body: '#0284c7', head: '#38bdf8' }
+  ];
+  var players = null; // versus: [{snake, dir, nextDir, score, alive}, ...]
 
   var snake, dir, nextDir, food, score, high, timer, running, paused, over;
 
@@ -120,13 +161,20 @@
 
   function speed() {
     var d = DIFF[difficulty];
-    return Math.max(d.min, d.base - score * d.step);
+    var s = score;
+    if (mode === 'versus' && players) s = Math.max(players[0].score, players[1].score);
+    return Math.max(d.min, d.base - s * d.step);
+  }
+
+  function allBodies() {
+    if (mode === 'versus' && players) return players[0].snake.concat(players[1].snake);
+    return snake;
   }
 
   function placeFood() {
     while (true) {
       var f = { x: Math.floor(Math.random() * GRID), y: Math.floor(Math.random() * GRID) };
-      var onSnake = snake.some(function (s) { return s.x === f.x && s.y === f.y; });
+      var onSnake = allBodies().some(function (s) { return s.x === f.x && s.y === f.y; });
       if (!onSnake) { food = f; return; }
     }
   }
@@ -143,6 +191,19 @@
     pauseBtn.textContent = '暂停';
   }
 
+  function versusReset() {
+    players = [
+      { snake: [{ x: 4, y: 10 }, { x: 3, y: 10 }, { x: 2, y: 10 }], dir: { x: 1, y: 0 }, nextDir: { x: 1, y: 0 }, score: 0, alive: true },
+      { snake: [{ x: 15, y: 10 }, { x: 16, y: 10 }, { x: 17, y: 10 }], dir: { x: -1, y: 0 }, nextDir: { x: -1, y: 0 }, score: 0, alive: true }
+    ];
+    score1El.textContent = '0';
+    score2El.textContent = '0';
+    placeFood();
+    over = false;
+    paused = false;
+    pauseBtn.textContent = '暂停';
+  }
+
   function updateScore() {
     scoreEl.textContent = score;
     if (score > high) {
@@ -152,14 +213,30 @@
     }
   }
 
+  function versusUpdateScore() {
+    // 双人不计入单人最高分
+    score1El.textContent = players[0].score;
+    score2El.textContent = players[1].score;
+  }
+
   function draw() {
     ctx.fillStyle = '#1e293b';
     ctx.fillRect(0, 0, 400, 400);
     ctx.fillStyle = '#f87171';
     ctx.fillRect(food.x * CELL + 2, food.y * CELL + 2, CELL - 4, CELL - 4);
-    for (var i = 0; i < snake.length; i++) {
-      ctx.fillStyle = i === 0 ? '#4ade80' : '#22c55e';
-      ctx.fillRect(snake[i].x * CELL + 1, snake[i].y * CELL + 1, CELL - 2, CELL - 2);
+    if (mode === 'versus' && players) {
+      for (var p = 0; p < 2; p++) {
+        var pl = players[p], c = PCOLORS[p];
+        for (var i = 0; i < pl.snake.length; i++) {
+          ctx.fillStyle = i === 0 ? c.head : c.body;
+          ctx.fillRect(pl.snake[i].x * CELL + 1, pl.snake[i].y * CELL + 1, CELL - 2, CELL - 2);
+        }
+      }
+      return;
+    }
+    for (var k = 0; k < snake.length; k++) {
+      ctx.fillStyle = k === 0 ? '#4ade80' : '#22c55e';
+      ctx.fillRect(snake[k].x * CELL + 1, snake[k].y * CELL + 1, CELL - 2, CELL - 2);
     }
   }
 
@@ -178,7 +255,8 @@
   }
 
   function start() {
-    reset();
+    if (mode === 'versus') versusReset();
+    else reset();
     hideOverlay();
     running = true;
     restartTimer();
@@ -192,7 +270,17 @@
     showOverlay('游戏结束', '得分 ' + score + '，最高分 ' + high, '再来一局', start);
   }
 
+  function versusGameOver() {
+    over = true;
+    running = false;
+    if (timer) clearInterval(timer);
+    var a = players[0].alive, b = players[1].alive;
+    var title = a && !b ? 'P1 获胜！' : (!a && b ? 'P2 获胜！' : '平局！');
+    showOverlay(title, 'P1 得分 ' + players[0].score + '，P2 得分 ' + players[1].score, '再来一局', start);
+  }
+
   function tick() {
+    if (mode === 'versus') { versusTick(); return; }
     dir = nextDir;
     var head = { x: snake[0].x + dir.x, y: snake[0].y + dir.y };
     var hitWall = head.x < 0 || head.y < 0 || head.x >= GRID || head.y >= GRID;
@@ -207,6 +295,52 @@
     } else {
       snake.pop();
     }
+    draw();
+  }
+
+  function versusTick() {
+    var i, p, j, head;
+    // 两条蛇同时移动
+    for (i = 0; i < 2; i++) {
+      p = players[i];
+      if (!p.alive) continue;
+      p.dir = p.nextDir;
+      p.snake.unshift({ x: p.snake[0].x + p.dir.x, y: p.snake[0].y + p.dir.y });
+    }
+    // 判定死亡：撞墙，或撞到除自己头之外的任何身体（含对方的头，对撞算平局）
+    var bodies = players[0].snake.concat(players[1].snake);
+    var len0 = players[0].snake.length;
+    var deaths = [false, false];
+    for (i = 0; i < 2; i++) {
+      p = players[i];
+      if (!p.alive) continue;
+      head = p.snake[0];
+      var selfHeadIdx = i === 0 ? 0 : len0;
+      var dead = head.x < 0 || head.y < 0 || head.x >= GRID || head.y >= GRID;
+      if (!dead) {
+        for (j = 0; j < bodies.length; j++) {
+          if (j === selfHeadIdx) continue;
+          if (bodies[j].x === head.x && bodies[j].y === head.y) { dead = true; break; }
+        }
+      }
+      deaths[i] = dead;
+    }
+    for (i = 0; i < 2; i++) if (deaths[i]) players[i].alive = false;
+    if (!players[0].alive || !players[1].alive) { versusGameOver(); return; }
+    // 吃食物
+    var ate = false;
+    for (i = 0; i < 2; i++) {
+      p = players[i];
+      if (p.snake[0].x === food.x && p.snake[0].y === food.y) {
+        p.score++;
+        ate = true;
+        placeFood();
+      } else {
+        p.snake.pop();
+      }
+    }
+    versusUpdateScore();
+    if (ate) restartTimer();
     draw();
   }
 
@@ -225,12 +359,22 @@
   }
 
   function setDir(x, y) {
-    if (!running || paused || over) return;
+    if (!running || paused || over || mode === 'versus') return;
     if (x === -dir.x && y === -dir.y) return;
     nextDir = { x: x, y: y };
   }
 
+  function setVersusDir(pi, x, y) {
+    if (!running || paused || over || mode !== 'versus' || !players) return;
+    var p = players[pi];
+    if (!p.alive) return;
+    if (x === -p.dir.x && y === -p.dir.y) return;
+    p.nextDir = { x: x, y: y };
+  }
+
   var DIRS = { up: [0, -1], down: [0, 1], left: [-1, 0], right: [1, 0] };
+  var ARROWS = { ArrowUp: [0, -1], ArrowDown: [0, 1], ArrowLeft: [-1, 0], ArrowRight: [1, 0] };
+  var P1KEYS = { KeyW: [0, -1], KeyS: [0, 1], KeyA: [-1, 0], KeyD: [1, 0] };
   var KEYS = {
     ArrowUp: [0, -1], KeyW: [0, -1],
     ArrowDown: [0, 1], KeyS: [0, 1],
@@ -239,6 +383,24 @@
   };
 
   document.addEventListener('keydown', function (e) {
+    if (mode === 'versus') {
+      if (P1KEYS[e.code]) {
+        var d1 = P1KEYS[e.code];
+        setVersusDir(0, d1[0], d1[1]);
+        e.preventDefault();
+      } else if (ARROWS[e.code]) {
+        var d2 = ARROWS[e.code];
+        setVersusDir(1, d2[0], d2[1]);
+        e.preventDefault();
+      } else if (e.code === 'Space') {
+        e.preventDefault();
+        if (!running && !over) start();
+        else togglePause();
+      } else if (e.code === 'Enter') {
+        start();
+      }
+      return;
+    }
     if (KEYS[e.code]) {
       setDir(KEYS[e.code][0], KEYS[e.code][1]);
       e.preventDefault();
@@ -297,6 +459,43 @@
   }
   renderDiff();
 
+  function renderModes() {
+    // 模式按钮全部由 AVAILABLE_MODES（集中设置）生成
+    modebar.innerHTML = '';
+    if (AVAILABLE_MODES.length <= 1) { modebar.style.display = 'none'; return; }
+    modebar.style.display = '';
+    AVAILABLE_MODES.forEach(function (m) {
+      var b = document.createElement('button');
+      b.textContent = MODE_LABEL[m] || m;
+      if (m === mode) b.classList.add('active');
+      b.addEventListener('click', function () {
+        if (mode === m) return;
+        mode = m;
+        renderModes();
+        renderScorebar();
+        renderControls();
+        start();
+      });
+      modebar.appendChild(b);
+    });
+  }
+
+  function renderScorebar() {
+    var v = mode === 'versus';
+    document.getElementById('sb-single').hidden = v;
+    document.getElementById('sb-high').hidden = v;
+    document.getElementById('sb-p1').hidden = !v;
+    document.getElementById('sb-p2').hidden = !v;
+  }
+
+  function renderControls() {
+    // 双人模式必须用键盘，隐藏触屏方向键
+    controlsEl.style.display = mode === 'versus' ? 'none' : '';
+    hintEl.innerHTML = mode === 'versus'
+      ? 'P1（绿）：WASD 移动<br>P2（蓝）：方向键移动，撞墙或撞到蛇就输'
+      : '电脑：方向键 / WASD 移动，空格暂停，回车重开<br>手机：在画面上滑动，或点下方方向按钮';
+  }
+
   ovBtn.onclick = start;
   pauseBtn.onclick = togglePause;
   restartBtn.onclick = start;
@@ -305,6 +504,9 @@
     if (document.hidden && running && !paused && !over) togglePause();
   });
 
+  renderModes();
+  renderScorebar();
+  renderControls();
   reset();
   draw();
 })();
