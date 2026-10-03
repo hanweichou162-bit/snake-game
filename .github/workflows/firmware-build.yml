@@ -1,0 +1,44 @@
+# .github/workflows/firmware-build.yml
+# 每次 PR 自动编译 ESP32-S3 固件，失败显示红叉。版本全部钉死。
+# 添加方式（连接器无 Workflows 权限，由你在网页手动添加）：
+# 仓库页 → Add file → Create new file → 文件名填 .github/workflows/firmware-build.yml
+# → 粘贴本文件 → Commit 到 feature/lan-multiplayer 分支。
+name: Firmware build (ESP32-S3)
+on:
+ pull_request:
+   paths:
+     - 'lan/**'
+     - 'index.html'
+     - '.github/workflows/firmware-build.yml'
+permissions:
+ contents: read
+jobs:
+ build:
+   runs-on: ubuntu-24.04
+   steps:
+     - name: 取代码
+       uses: actions/checkout@v7.0.1
+     - name: 装 Python 3.12
+       uses: actions/setup-python@v7.0.0
+       with:
+         python-version: '3.12'
+     - name: 生成 webpage.h
+       run: python3 lan/build.py
+     - name: 装 arduino-cli 1.5.1（钉死版本）
+       run: |
+         curl -fsSL "https://downloads.arduino.cc/arduino-cli/arduino-cli_1.5.1_Linux_64bit.tar.gz" -o /tmp/arduino-cli.tar.gz
+         tar -xzf /tmp/arduino-cli.tar.gz -C /tmp
+         mkdir -p "$HOME/bin"
+         mv /tmp/arduino-cli "$HOME/bin/arduino-cli"
+         echo "$HOME/bin" >> $GITHUB_PATH
+     - name: 装 esp32 core 3.3.12（钉死）
+       run: |
+         arduino-cli core update-index --additional-urls https://espressif.github.io/arduino-esp32/package_esp32_index.json
+         arduino-cli core install esp32:esp32@3.3.12 --additional-urls https://espressif.github.io/arduino-esp32/package_esp32_index.json
+     - name: 装库（钉死版本）
+       run: arduino-cli lib install "WebSockets@2.7.2" "ArduinoJson@7.4.3"
+     - name: 编译固件（XIAO_ESP32S3）
+       run: |
+         arduino-cli compile --fqbn esp32:esp32:XIAO_ESP32S3 \
+           --board-options "CDCOnBoot=default,PSRAM=opi" \
+           lan/snake-lan
