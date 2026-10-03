@@ -57,42 +57,87 @@
 3. 按提示重新输入三项（密码仍不回显），保存后自动重启生效。
 4. 输入 `help` 回车可查看串口可用指令。
 
-## 5. 第一次刷机（USB 线，电脑上操作）
+## 5. 第一次刷机（Windows，USB 线）
 
-1. **安装 Arduino IDE**：浏览器打开 arduino.cc → Downloads → 下载你电脑系统对应的安装包 → 一路下一步安装。
-2. **添加 ESP32 开发板支持**：打开 Arduino IDE → 左上角「文件」→「首选项」→
-   在「附加开发板管理器网址」一栏粘贴
+### 5.1 安装 Python（只装一次）
+
+1. 浏览器打开 https://www.python.org/downloads/ → 点黄色 "Download Python 3.x.x" 按钮 → 下载 Windows installer (64-bit)。
+2. 双击安装包 → **第一屏最下方勾选 "Add python.exe to PATH"**（关键，不勾后面命令找不到）→ 点 "Install Now" → 等完成 → Close。
+3. 验证：按 `Win+R` → 输入 `cmd` → 回车 → 在黑色窗口输入 `py --version` → 显示 `Python 3.x.x` 即成功。
+   以后运行脚本都用 `py`（如 `py lan/build.py`）；如果 `py` 没反应再试 `python`。
+
+### 5.2 下载代码（ZIP，不用装 Git）
+
+1. 浏览器打开 https://github.com/hanweichou162-bit/snake-game
+2. 点左上分支按钮（显示 main）→ 找到并点 **`feature/lan-multiplayer`**（注意别下成 main）。
+3. 点绿色 "<> Code" 按钮 → "Download ZIP"。
+4. 右键下载好的 ZIP → "全部解压缩" → 解压到桌面 → 得到文件夹 `snake-game-feature-lan-multiplayer`。
+5. 打开这个文件夹 → 点一下顶部地址栏 → 输入 `cmd` → 回车 → 弹出黑色窗口（终端，且已经在这个文件夹里了）。
+
+### 5.3 安装 Arduino IDE 并配置
+
+1. 浏览器打开 arduino.cc → Downloads → 下载 Windows 版 → 一路下一步安装。
+2. 打开 Arduino IDE → 左上角「文件」→「首选项」→「附加开发板管理器网址」粘贴
    `https://espressif.github.io/arduino-esp32/package_esp32_index.json` → 点「好」。
-3. **安装 esp32 开发包**：左侧边栏点开发板管理器图标（或「工具」→「开发板」→「开发板管理器」）→
+3. 左侧边栏点开发板管理器图标（或「工具」→「开发板」→「开发板管理器」）→
    搜索框输入 `esp32` → 找到 "esp32 by Espressif Systems" → 版本下拉选 **3.3.12** → 点「安装」。
-4. **选开发板**：顶部工具栏的开发板下拉框（或「工具」→「开发板」→「esp32」）→ 搜索 `XIAO_ESP32S3` → 选中。
-5. **开发板选项**：「工具」菜单 → USB CDC On Boot → Enabled；PSRAM → OPI PSRAM；
-   其他保持默认即可。
-6. **安装两个库**：左侧边栏点库管理器图标（或「工具」→「管理库」）→
-   搜索 `WebSockets` → 找到 "WebSockets by Markus Sattler" → 版本选 **2.7.2** → 安装；
-   再搜索 `ArduinoJson` → "ArduinoJson by Benoit Blanchon" → 版本选 **7.4.3** → 安装。
+4. 顶部工具栏的开发板下拉框（或「工具」→「开发板」→「esp32」）→ 搜索 `XIAO_ESP32S3` → 选中。
+5. 「工具」菜单 → USB CDC On Boot → Enabled；PSRAM → OPI PSRAM；
+   分区方案保持 **Default**（XIAO ESP32S3 默认 8MB 分区自带双 OTA 槽，直接支持 Wi-Fi 更新）。
+6. 左侧边栏点库管理器图标（或「工具」→「管理库」）→
+   搜索 `WebSockets` → "WebSockets by Markus Sattler" → 版本 **2.7.2** → 安装；
+   再搜索 `ArduinoJson` → "ArduinoJson by Benoit Blanchon" → 版本 **7.4.3** → 安装。
    （mDNS、无线更新为开发包自带，不用装。）
-7. **连线选端口**：USB-C 线连接单片机和电脑 →「工具」→「端口」→ 选择新出现的串口
-   （macOS 一般是 `/dev/cu.usbmodem…`，Windows 是 COMx）。
-8. **生成网页头文件**：打开终端，`cd` 到仓库根目录，运行 `python3 lan/build.py` →
-   看到「已生成 lan/firmware/webpage.h」即成功。
-9. **打开固件**：Arduino IDE →「文件」→「打开」→ 选择 `lan/firmware/snake-lan.ino`。
-10. **上传**：点左上角「上传」按钮（→ 箭头）→ 等底部输出栏显示上传完成。
-11. **配网**：按第 4 节（串口监视器）输入 Wi-Fi 名称/密码和 OTA 密码。
+
+### 5.4 生成网页并上传
+
+1. USB-C 线连接板子和电脑 →「工具」→「端口」→ 选择新出现的 COMx。
+   （如果没出现新端口，先换一根线——有些线只能充电不能传数据。）
+2. 回到 5.2 步的黑色窗口 → 输入 `py lan/build.py` → 看到「已生成 lan/firmware/webpage.h」即成功。
+3. Arduino IDE →「文件」→「打开」→ 选择桌面临时文件夹里的 `lan/firmware/snake-lan.ino`。
+4. 点左上角「上传」按钮（→ 箭头）→ 等底部输出栏显示上传完成。
+
+### 5.5 配网（串口监视器）
+
+1. IDE 右上角点**放大镜图标**（或菜单「工具」→「串口监视器」，快捷键 `Ctrl+Shift+M`）。
+2. 串口监视器面板**右上方**：波特率下拉 → 选 **115200**；它旁边的行尾下拉 → 选 **Newline**。
+3. 板子无配网信息时会自动提示，在顶部输入框依次输入（输完按回车或点发送）：
+   - `Wi-Fi name:` → 家里 Wi-Fi 名称，回车（正常回显）
+   - `Wi-Fi password:` → Wi-Fi 密码，回车（**不回显**，屏幕上看不到字是正常的）
+   - `OTA password:` → 以后 Wi-Fi 更新用的密码，回车（同样不回显）
+4. 看到「已连接，IP: 192.168.x.x」即配网成功。
+
+### 5.6 刷机后测试清单
+
+| # | 检查项 | 通过的样子 |
+|---|---|---|
+| 1 | 板子连上 Wi-Fi | 串口监视器显示 `已连接，IP: 192.168.x.x`，接着显示 `HTTP(80) + WebSocket(81) 已启动`（而不是一直打印 `...`） |
+| 2 | 手机打开游戏页 | 手机连**家里同一 Wi-Fi** → 浏览器打开 `http://<上面那个IP>/` → 游戏页打开，页顶显示 **v1.4.0**，默认选中「双人联机」 |
+| 3 | 建房 | 点「创建房间」→ 显示 6 位房间码（如 `A7K9P2`）+ 二维码正常渲染 |
+| 4 | 第二台手机加入 | 第二台手机连同一 Wi-Fi → 扫码 → 自动进入房间并等待 → **两台手机同时进入游戏画面**（P1 绿、P2 蓝两条蛇出现） |
+| 5 | 对战 | 两台手机分别滑动控制自己的蛇，移动跟手；故意撞墙/撞对方身体 → 输方显示「你输了！」、赢方显示「你赢了！」，P1/P2 计分正常 |
+| 6 | 版本号 | 两台手机页顶都是 **v1.4.0** |
+
+扫码不方便时，第二台手机也可以打开 `http://<IP>/` 后手动输入 6 位房间码加入。
 
 ## 6. 以后更新走 Wi-Fi（要 OTA 密码）
 
-1. **本地先重新生成网页**：终端 `cd` 到仓库根目录 → 运行 `python3 lan/build.py`
+1. **本地先重新生成网页**：黑色窗口进入代码文件夹 → 运行 `py lan/build.py`
    （确保 `webpage.h` 是最新的，网页随固件一起更新）。
 2. **导出 .bin 文件**：Arduino IDE 打开 `lan/firmware/snake-lan.ino` →
-   菜单「项目」→「导出已编译的二进制文件」→ 在 `lan/firmware/` 目录下得到
-   `snake-lan.ino.merged.bin`。
-3. **打开板子的更新页面**：手机/电脑连**家里 Wi-Fi** → 浏览器打开
+   菜单「项目」→「导出已编译的二进制文件」。
+3. **选对文件**：在 `lan/firmware/` 文件夹里找到 **`snake-lan.ino.bin`**
+   （如果没看到，检查该目录下的 `build` 子文件夹）。
+   > ⚠️ 不要用 `snake-lan.ino.merged.bin`。
+   > 理由：`/update` 用的是 ESP32 的 `Update` 库，它往 OTA 应用分区写入**纯应用镜像**；
+   > `snake-lan.ino.bin` 就是纯应用镜像。`merged.bin` 里还打包了 bootloader 和分区表，
+   > 是给 USB 整片烧录用的——传给 `/update` 会写错位置，板子起不来。
+4. **打开板子的更新页面**：手机/电脑连**家里 Wi-Fi** → 浏览器打开
    `http://<板子IP>/update`
    （板子 IP 可用串口监视器输 `status` 查看；`http://snake-game.local/update` 一般也能打开）。
-4. **输入密码并上传**：在页面输入 OTA 更新密码（配网第 4 节设置的那个）→
-   点「选择文件」选中第 2 步的 `.bin` → 点「上传更新」→ 等待页面显示「更新成功，重启中」。
-5. **确认版本**：板子自动重启后，手机打开游戏页，看页顶版本号是否为新版本（如 v1.4.0）。
+5. **输入密码并上传**：在页面输入 OTA 更新密码（配网第 4 节设置的那个）→
+   点「选择文件」选中第 3 步的 `snake-lan.ino.bin` → 点「上传更新」→ 等待页面显示「更新成功，重启中」。
+6. **确认版本**：板子自动重启后，手机打开游戏页，看页顶版本号是否为新版本（如 v1.4.0）。
 
 ## 7. 性能上限
 
