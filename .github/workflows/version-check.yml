@@ -1,0 +1,59 @@
+# .github/workflows/version-check.yml — 版本一致性检查
+#
+# 作用：PR 指向 main 时，检查 index.html 显示的版本号
+#      与 CHANGELOG.md 第一节版本号是否一致，不一致就红叉。
+#      （项目规范 v10：升版本号的 PR 必须在同一个 PR 里同时更新
+#       CHANGELOG 和页面显示的版本号。）
+#
+# 添加方式（按规范由用户在 GitHub 网页手动添加，单独一个 PR，不升版本号）：
+#   仓库页 → .github/workflows/ → Add file → Create new file →
+#   文件名填 .github/workflows/version-check.yml，粘贴本文件全文 → Commit。
+
+name: version-check
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    name: 版本一致性检查
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout PR 分支
+        uses: actions/checkout@v7.0.1
+
+      - name: 提取页面版本号
+        id: page
+        run: |
+          V="$(grep -m1 -oE '<div id="ver">v[0-9]+\.[0-9]+\.[0-9]+</div>' index.html | grep -oE '[0-9]+\.[0-9]+\.[0-9]+')"
+          if [ -z "$V" ]; then
+            echo "index.html 找不到 <div id=\"ver\">vX.Y.Z</div>"
+            exit 1
+          fi
+          echo "version=$V" >> "$GITHUB_OUTPUT"
+
+      - name: 提取 CHANGELOG 第一节版本号
+        id: log
+        run: |
+          V="$(grep -m1 -oE '^## \[[0-9]+\.[0-9]+\.[0-9]+\]' CHANGELOG.md | grep -oE '[0-9]+\.[0-9]+\.[0-9]+')"
+          if [ -z "$V" ]; then
+            echo "CHANGELOG.md 第一节找不到版本号"
+            exit 1
+          fi
+          echo "version=$V" >> "$GITHUB_OUTPUT"
+
+      - name: 比对
+        run: |
+          P="${{ steps.page.outputs.version }}"
+          L="${{ steps.log.outputs.version }}"
+          if [ "$P" != "$L" ]; then
+            echo "不一致：页面 v$P vs CHANGELOG $L"
+            echo "按项目规范 v10：升版本号的 PR 必须在同一个 PR 里同时更新 CHANGELOG 和页面显示的版本号"
+            exit 1
+          fi
+          echo "一致：v$P"
