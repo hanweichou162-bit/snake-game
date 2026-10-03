@@ -5,7 +5,7 @@
     python3 lan/build.py
 
 产出：
-    lan/firmware/webpage.h   （构建产物，不提交仓库；见 lan/.gitignore）
+    lan/snake-lan/webpage.h   （构建产物，不提交仓库；见 lan/.gitignore）
 
 处理：
   1. 读取 ../index.html（v1.4.0，唯一真相来源）
@@ -23,7 +23,7 @@ LAN_DIR = Path(__file__).resolve().parent
 ROOT = LAN_DIR.parent
 SRC = ROOT / "index.html"
 QR = LAN_DIR / "vendor" / "qrcode-1.4.4.js"
-OUT = LAN_DIR / "firmware" / "webpage.h"
+OUT = LAN_DIR / "snake-lan" / "webpage.h"
 
 DELIM = "SNAKEPAGE"
 
