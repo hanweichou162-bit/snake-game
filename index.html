@@ -57,11 +57,28 @@
   .dbtn { background: #334155; color: #e2e8f0; font-size: 1.5rem; padding: 0; border-radius: 14px; }
   .dbtn:active { background: #475569; }
   .hint { margin-top: 12px; font-size: .8rem; color: #64748b; text-align: center; line-height: 1.7; }
+  #lobby {
+    position: absolute; inset: 0;
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    background: rgba(15,23,42,.92); border-radius: 10px; text-align: center; padding: 20px;
+  }
+  #lobby.hidden { display: none; }
+  #lobby h2 { font-size: 1.4rem; margin-bottom: 14px; }
+  #lobby input {
+    font-size: 1rem; padding: 9px 12px; border-radius: 10px; border: 1px solid #475569;
+    background: #0f172a; color: #e2e8f0; width: 150px; text-align: center;
+    letter-spacing: 2px; text-transform: uppercase; margin-right: 8px;
+  }
+  #lobbyRow { display: flex; align-items: center; margin-top: 12px; }
+  #lobbyMsg { margin-top: 12px; font-size: .85rem; color: #fbbf24; min-height: 1.2em; }
+  #qr { margin: 10px auto; background: #fff; padding: 8px; border-radius: 8px; display: inline-block; }
+  #qr img { display: block; }
+  #roomCodeBig { font-size: 1.6rem; letter-spacing: 4px; color: #4ade80; font-weight: 700; }
 </style>
 </head>
 <body>
   <h1>贪吃蛇</h1>
-  <div id="ver">v1.3.0</div>
+  <div id="ver">v1.4.0</div>
   <div id="modebar"></div>
   <div id="scorebar"><span id="sb-single">得分<b id="score">0</b></span><span id="sb-high">最高分<b id="high">0</b></span><span id="sb-p1" class="p1" hidden>P1<b id="score1">0</b></span><span id="sb-p2" class="p2" hidden>P2<b id="score2">0</b></span></div>
   <div id="diffbar">
@@ -76,6 +93,24 @@
       <p id="ovText">吃到食物得分，蛇越长速度越快<br>撞墙或咬到自己就结束</p>
       <button id="ovBtn">开始</button>
     </div>
+    <div id="lobby" class="hidden">
+      <h2>双人联机</h2>
+      <div id="lobbyMain">
+        <button id="createBtn">创建房间</button>
+        <div id="lobbyRow">
+          <input id="roomInput" placeholder="房间码" maxlength="6" autocomplete="off">
+          <button id="joinBtn">加入房间</button>
+        </div>
+      </div>
+      <div id="lobbyWait" class="hidden">
+        <p>房间码</p>
+        <div id="roomCodeBig">------</div>
+        <div id="qr"></div>
+        <p style="font-size:.8rem;color:#94a3b8">朋友连同一 Wi-Fi 后扫码加入</p>
+        <p id="lobbyWaitText">等待朋友加入…</p>
+      </div>
+      <p id="lobbyMsg"></p>
+    </div>
   </div>
   <div id="btnbar">
     <button id="pauseBtn">暂停</button>
@@ -88,6 +123,7 @@
   </div>
   <p class="hint">电脑：方向键 / WASD 移动，空格暂停，回车重开<br>手机：在画面上滑动，或点下方方向按钮</p>
 
+<!--{{QRCODE_LIB}}-->
 <script>
 (function () {
   "use strict";
@@ -110,12 +146,16 @@
 
   // ===== 集中设置：设备 → 可用模式（只改这里，不分散写死在各处）=====
   // desktop: 单人 + 同屏双人（本地、不联网）
-  // mobile:  单人（第二阶段把 'mobile' 改为 ['single', 'online'] 即上线手机联机）
+  // mobile:  单人 + 双人联机（v1.4.0 起；公开 Pages 版隐藏联机选项）
   var MODES_BY_DEVICE = {
     desktop: ['single', 'versus'],
-    mobile: ['single']
+    mobile: ['single', 'online']
   };
   var MODE_LABEL = { single: '单人', versus: '双人', online: '双人联机' };
+
+  // ===== 局域网构建开关（build.py 在固件版中替换为 true）=====
+  var LAN_BUILD = /*{{LAN_BUILD}}*/false;
+  var DEVICE_IP = '{{DEVICE_IP}}'; // 固件 serving 时替换为板子实际 IP
 
   function detectDevice() {
     // 判断方法：以主输入是否为触控（pointer: coarse）为准，UA 关键词作兜底；
@@ -129,7 +169,11 @@
   }
   var DEVICE = detectDevice();
   var AVAILABLE_MODES = MODES_BY_DEVICE[DEVICE] || ['single'];
-  var mode = 'single'; // 'single' | 'versus' | 'online'(第二阶段)
+  if (!LAN_BUILD) {
+    // 公开 Pages 版：隐藏联机选项（单片机版才有）
+    AVAILABLE_MODES = AVAILABLE_MODES.filter(function (m) { return m !== 'online'; });
+  }
+  var mode = LAN_BUILD ? 'online' : 'single'; // 'single' | 'versus' | 'online'
 
   // 同屏双人配色：P1 绿 / P2 蓝
   var PCOLORS = [
@@ -171,9 +215,21 @@
     return snake;
   }
 
+  // 联机模式用种子随机（两端食物一致），其他模式用 Math.random
+  var rngFn = null;
+  function rand() { return rngFn ? rngFn() : Math.random(); }
+  function mulberry32(a) {
+    return function () {
+      a |= 0; a = (a + 0x6D2B79F5) | 0;
+      var t = Math.imul(a ^ (a >>> 15), 1 | a);
+      t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+      return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    };
+  }
+
   function placeFood() {
     while (true) {
-      var f = { x: Math.floor(Math.random() * GRID), y: Math.floor(Math.random() * GRID) };
+      var f = { x: Math.floor(rand() * GRID), y: Math.floor(rand() * GRID) };
       var onSnake = allBodies().some(function (s) { return s.x === f.x && s.y === f.y; });
       if (!onSnake) { food = f; return; }
     }
@@ -274,10 +330,209 @@
     over = true;
     running = false;
     if (timer) clearInterval(timer);
-    var a = players[0].alive, b = players[1].alive;
-    var title = a && !b ? 'P1 获胜！' : (!a && b ? 'P2 获胜！' : '平局！');
+    if (mode === 'online') {
+      // 联机：两端各自独立判定（确定性同步，结果一致），顺手通知对方兜底
+      var a = players[0].alive, b = players[1].alive;
+      var w = a && !b ? 0 : (!a && b ? 1 : 2);
+      wsSend({ t: 'over', w: w });
+      showOnlineResult(w);
+      return;
+    }
+    var a2 = players[0].alive, b2 = players[1].alive;
+    var title = a2 && !b2 ? 'P1 获胜！' : (!a2 && b2 ? 'P2 获胜！' : '平局！');
     showOverlay(title, 'P1 得分 ' + players[0].score + '，P2 得分 ' + players[1].score, '再来一局', start);
   }
+
+  // ================= 局域网联机（online 模式，v1.4.0）==================
+  // 服务器是"哑转发"：只做房间配对和消息原样中继，不解析游戏逻辑。
+  // 两端跑同一份确定性模拟：每 tick 交换方向输入，食物用种子随机，
+  // 各自独立判定输赢（规则与同屏双人一致）。
+  var lobbyEl = document.getElementById('lobby');
+  var lobbyMain = document.getElementById('lobbyMain');
+  var lobbyWait = document.getElementById('lobbyWait');
+  var lobbyMsgEl = document.getElementById('lobbyMsg');
+  var roomInput = document.getElementById('roomInput');
+  var roomCodeBig = document.getElementById('roomCodeBig');
+  var qrEl = document.getElementById('qr');
+  var lobbyWaitText = document.getElementById('lobbyWaitText');
+  var diffbarEl = document.getElementById('diffbar');
+
+  var ws = null;
+  var myIdx = 0;            // 我是 P1(0)/P2(1)
+  var roomCode = '';
+  var peerDir = { x: -1, y: 0 }; // 对方上一 tick 方向（没收到时沿用）
+  var tickN = 0;
+  var onlineStarted = false;
+  var ONLINE_TICK_MS = 150; // 联机固定 tick，两端一致
+
+  var DIRS_BY_NAME = { up: [0, -1], down: [0, 1], left: [-1, 0], right: [1, 0] };
+  function dirName(d) {
+    if (d.x === 1) return 'right';
+    if (d.x === -1) return 'left';
+    if (d.y === 1) return 'down';
+    return 'up';
+  }
+  function genRoomCode() {
+    var chars = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
+    var c = '';
+    for (var i = 0; i < 6; i++) c += chars[Math.floor(Math.random() * chars.length)];
+    return c;
+  }
+  function lobbyMsg(t) { lobbyMsgEl.textContent = t || ''; }
+  function wsSend(obj) {
+    if (ws && ws.readyState === 1) { try { ws.send(JSON.stringify(obj)); } catch (e) {} }
+  }
+  function closeWs() {
+    if (ws) { try { ws.onclose = null; ws.close(); } catch (e) {} ws = null; }
+  }
+
+  function showLobby() {
+    hideOverlay();
+    lobbyEl.classList.remove('hidden');
+    lobbyMain.classList.remove('hidden');
+    lobbyWait.classList.add('hidden');
+    lobbyMsg('');
+    var m = (location.hash || '').match(/room=([A-Za-z0-9]{6})/i);
+    if (m) { roomInput.value = m[1].toUpperCase(); joinRoom(); }
+  }
+  function hideLobby() { lobbyEl.classList.add('hidden'); }
+
+  function enterOnlineLobby() {
+    onlineStarted = false;
+    rngFn = null;
+    closeWs();
+    if (timer) clearInterval(timer);
+    running = false; over = false; paused = false;
+    pauseBtn.textContent = '暂停';
+    showLobby();
+    reset();
+    draw();
+  }
+
+  function connectWs(onOpen) {
+    closeWs();
+    var url = 'ws://' + location.hostname + ':81/';
+    try { ws = new WebSocket(url); }
+    catch (e) { lobbyMsg('连不上单片机'); return; }
+    ws.onopen = onOpen;
+    ws.onmessage = onWsMessage;
+    ws.onclose = function () {
+      if (mode === 'online' && onlineStarted && !over) {
+        onlineStarted = false;
+        showOverlay('连接断开', '与单片机的连接已断开', '返回大厅', enterOnlineLobby);
+      }
+    };
+    ws.onerror = function () { lobbyMsg('连不上单片机，请确认连的是同一 Wi-Fi'); };
+  }
+
+  function createRoom() {
+    roomCode = genRoomCode();
+    lobbyMsg('正在创建房间…');
+    connectWs(function () { wsSend({ t: 'join', room: roomCode }); });
+  }
+  function joinRoom() {
+    var code = (roomInput.value || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+    if (code.length !== 6) { lobbyMsg('请输入 6 位房间码'); return; }
+    roomCode = code;
+    lobbyMsg('正在加入房间…');
+    connectWs(function () { wsSend({ t: 'join', room: roomCode }); });
+  }
+
+  function onWsMessage(ev) {
+    var msg;
+    try { msg = JSON.parse(ev.data); } catch (e) { return; }
+    if (msg.t === 'ok') {
+      myIdx = msg.you | 0;
+      peerDir = myIdx === 0 ? { x: -1, y: 0 } : { x: 1, y: 0 };
+      lobbyMain.classList.add('hidden');
+      lobbyWait.classList.remove('hidden');
+      roomCodeBig.textContent = roomCode;
+      lobbyMsg('');
+      qrEl.innerHTML = '';
+      if (myIdx === 0) {
+        lobbyWaitText.textContent = '等待朋友加入…';
+        try {
+          var qr = qrcode(0, 'M');
+          qr.addData('http://' + DEVICE_IP + '/#room=' + roomCode);
+          qr.make();
+          qrEl.innerHTML = qr.createImgTag(4, 0);
+        } catch (e) {}
+      } else {
+        lobbyWaitText.textContent = '已加入，等待房主开始…';
+      }
+    } else if (msg.t === 'full') {
+      lobbyMsg('房间已满，换个房间码试试');
+      closeWs();
+    } else if (msg.t === 'paired') {
+      // 房主收到配对成功：发开始信号（含食物种子）并开局
+      if (myIdx === 0 && !onlineStarted) {
+        var seed = (Math.random() * 4294967296) >>> 0;
+        wsSend({ t: 'go', seed: seed });
+        startOnline(seed);
+      }
+    } else if (msg.t === 'go') {
+      if (!onlineStarted) startOnline(msg.seed >>> 0);
+    } else if (msg.t === 'i') {
+      var d = DIRS_BY_NAME[msg.d];
+      if (d) peerDir = { x: d[0], y: d[1] };
+    } else if (msg.t === 'over') {
+      if (onlineStarted && !over) {
+        over = true; running = false;
+        if (timer) clearInterval(timer);
+        showOnlineResult(msg.w | 0);
+      }
+    } else if (msg.t === 'left') {
+      if (onlineStarted && !over) {
+        over = true; running = false;
+        if (timer) clearInterval(timer);
+        showOverlay('对方离开了', '对方已断开连接', '返回大厅', enterOnlineLobby);
+      }
+    }
+  }
+
+  function startOnline(seed) {
+    rngFn = mulberry32(seed);
+    tickN = 0;
+    versusReset(); // 复用双人初始布局与 P1/P2 配色
+    hideLobby();
+    hideOverlay();
+    onlineStarted = true;
+    running = true;
+    if (timer) clearInterval(timer);
+    timer = setInterval(onlineTick, ONLINE_TICK_MS);
+    draw();
+  }
+
+  function showOnlineResult(w) {
+    // w: 0=P1胜 1=P2胜 2=平局
+    onlineStarted = false;
+    var title = w === 2 ? '平局！' : (w === myIdx ? '你赢了！' : '你输了！');
+    var detail = 'P1 得分 ' + players[0].score + '，P2 得分 ' + players[1].score +
+      '<br>你是 ' + (myIdx === 0 ? 'P1（绿）' : 'P2（蓝）');
+    showOverlay(title, detail, '返回大厅', enterOnlineLobby);
+  }
+
+  function onlineTick() {
+    wsSend({ t: 'i', d: dirName(players[myIdx].dir), n: tickN++ });
+    players[1 - myIdx].nextDir = { x: peerDir.x, y: peerDir.y };
+    versusTick(); // 复用双人判定；吃到食物时不重设计时器（联机固定 tick）
+  }
+
+  function setOnlineDir(x, y) {
+    if (!running || paused || over || mode !== 'online' || !players) return;
+    var p = players[myIdx];
+    if (!p.alive) return;
+    if (x === -p.dir.x && y === -p.dir.y) return;
+    p.nextDir = { x: x, y: y };
+  }
+  function setMyDir(x, y) {
+    if (mode === 'online') setOnlineDir(x, y);
+    else if (mode !== 'versus') setDir(x, y);
+  }
+
+  document.getElementById('createBtn').addEventListener('click', createRoom);
+  document.getElementById('joinBtn').addEventListener('click', joinRoom);
+  // ================= 联机部分结束 =================
 
   function tick() {
     if (mode === 'versus') { versusTick(); return; }
@@ -340,7 +595,7 @@
       }
     }
     versusUpdateScore();
-    if (ate) restartTimer();
+    if (ate && mode !== 'online') restartTimer(); // 联机用固定 tick，不重设计时器
     draw();
   }
 
@@ -383,6 +638,15 @@
   };
 
   document.addEventListener('keydown', function (e) {
+    if (mode === 'online') {
+      // 联机：只管自己那条蛇；暂停会 desync，直接禁用
+      if (KEYS[e.code]) {
+        var dd = KEYS[e.code];
+        setOnlineDir(dd[0], dd[1]);
+        e.preventDefault();
+      }
+      return;
+    }
     if (mode === 'versus') {
       if (P1KEYS[e.code]) {
         var d1 = P1KEYS[e.code];
@@ -424,8 +688,8 @@
     var t = e.changedTouches[0];
     var dx = t.clientX - tsx, dy = t.clientY - tsy;
     if (Math.abs(dx) < 24 && Math.abs(dy) < 24) return;
-    if (Math.abs(dx) > Math.abs(dy)) setDir(dx > 0 ? 1 : -1, 0);
-    else setDir(0, dy > 0 ? 1 : -1);
+    if (Math.abs(dx) > Math.abs(dy)) setMyDir(dx > 0 ? 1 : -1, 0);
+    else setMyDir(0, dy > 0 ? 1 : -1);
   }, { passive: true });
 
   var dbtns = document.querySelectorAll('.dbtn');
@@ -434,7 +698,7 @@
       b.addEventListener('pointerdown', function (e) {
         e.preventDefault();
         var d = DIRS[b.getAttribute('data-dir')];
-        setDir(d[0], d[1]);
+        setMyDir(d[0], d[1]);
       });
     })(dbtns[i]);
   }
@@ -470,18 +734,20 @@
       if (m === mode) b.classList.add('active');
       b.addEventListener('click', function () {
         if (mode === m) return;
+        if (running && mode === 'online') { closeWs(); onlineStarted = false; rngFn = null; }
         mode = m;
         renderModes();
         renderScorebar();
         renderControls();
-        start();
+        if (m === 'online') enterOnlineLobby();
+        else start();
       });
       modebar.appendChild(b);
     });
   }
 
   function renderScorebar() {
-    var v = mode === 'versus';
+    var v = mode === 'versus' || mode === 'online';
     document.getElementById('sb-single').hidden = v;
     document.getElementById('sb-high').hidden = v;
     document.getElementById('sb-p1').hidden = !v;
@@ -489,26 +755,29 @@
   }
 
   function renderControls() {
-    // 双人模式必须用键盘，隐藏触屏方向键
+    // 双人模式必须用键盘，隐藏触屏方向键；联机模式固定 tick，隐藏难度条
     controlsEl.style.display = mode === 'versus' ? 'none' : '';
+    diffbarEl.style.display = mode === 'online' ? 'none' : '';
     hintEl.innerHTML = mode === 'versus'
       ? 'P1（绿）：WASD 移动<br>P2（蓝）：方向键移动，撞墙或撞到蛇就输'
-      : '电脑：方向键 / WASD 移动，空格暂停，回车重开<br>手机：在画面上滑动，或点下方方向按钮';
+      : (mode === 'online'
+        ? '在画面上滑动或点方向按钮移动<br>与朋友各控一条蛇，规则同双人模式'
+        : '电脑：方向键 / WASD 移动，空格暂停，回车重开<br>手机：在画面上滑动，或点下方方向按钮');
   }
 
   ovBtn.onclick = start;
-  pauseBtn.onclick = togglePause;
-  restartBtn.onclick = start;
+  pauseBtn.onclick = function () { if (mode !== 'online') togglePause(); }; // 联机暂停会 desync，禁用
+  restartBtn.onclick = function () { if (mode === 'online') enterOnlineLobby(); else start(); };
 
   document.addEventListener('visibilitychange', function () {
-    if (document.hidden && running && !paused && !over) togglePause();
+    if (document.hidden && running && !paused && !over && mode !== 'online') togglePause();
   });
 
   renderModes();
   renderScorebar();
   renderControls();
-  reset();
-  draw();
+  if (mode === 'online') enterOnlineLobby();
+  else { reset(); draw(); }
 })();
 </script>
 </body>

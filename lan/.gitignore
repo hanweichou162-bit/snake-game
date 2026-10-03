@@ -1,0 +1,2 @@
+# 构建产物：每次刷机前跑 python3 lan/build.py 重新生成，不提交
+snake-lan/webpage.h
