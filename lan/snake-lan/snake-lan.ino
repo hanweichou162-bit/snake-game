@@ -117,7 +117,8 @@ void serialCommands() {
 
 // ---------- WebSocket 房间（哑转发：只配对＋原样中继） ----------
 void wsSend(uint8_t num, const String &s) {
-  ws.sendTXT(num, s);
+  String tmp = s; // sendTXT 只要非 const 引用（String&），转一份再发
+  ws.sendTXT(num, tmp);
 }
 
 int8_t findRoom(const String &code) {
