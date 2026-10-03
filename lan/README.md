@@ -20,7 +20,7 @@
 
 - 仓库根目录 `index.html` 是唯一真相来源。
 - `lan/build.py`（到货后写）：读取根目录 `index.html`，把占位符替换为局域网默认配置
-  （默认模式 lan 等），再转成 C 头文件 `lan/firmware/webpage.h`（PROGMEM 字符串）供固件编译进 flash。
+  （默认模式 lan 等），再转成 C 头文件 `lan/snake-lan/webpage.h`（PROGMEM 字符串）供固件编译进 flash。
 - 生成的 `webpage.h` 是构建产物，**不提交仓库**（见 `.gitignore`），每次刷机前跑一遍脚本。
 - 手机「局域网联机」模式仍只改原来那一处集中设置：模式列表加一项 `lan`；
   该模式下 WebSocket 地址取 `ws://` + `location.hostname` + `:81`。
@@ -92,9 +92,10 @@
 ### 5.4 生成网页并上传
 
 1. USB-C 线连接板子和电脑 →「工具」→「端口」→ 选择新出现的 COMx。
-   （如果没出现新端口，先换一根线——有些线只能充电不能传数据。）
-2. 回到 5.2 步的黑色窗口 → 输入 `py lan/build.py` → 看到「已生成 lan/firmware/webpage.h」即成功。
-3. Arduino IDE →「文件」→「打开」→ 选择桌面临时文件夹里的 `lan/firmware/snake-lan.ino`。
+   （如果没出现新端口，先换一根线——有些线只能充电不能传数据；
+   还不行就**按住板子上的 BOOT 键不放再插 USB 线**，进下载模式后松开，再看端口。）
+2. 回到 5.2 步的黑色窗口 → 输入 `py lan/build.py` → 看到「已生成 lan/snake-lan/webpage.h」即成功。
+3. Arduino IDE →「文件」→「打开」→ 选择桌面临时文件夹里的 `lan/snake-lan/snake-lan.ino`。
 4. 点左上角「上传」按钮（→ 箭头）→ 等底部输出栏显示上传完成。
 
 ### 5.5 配网（串口监视器）
@@ -113,6 +114,9 @@
 |---|---|---|
 | 1 | 板子连上 Wi-Fi | 串口监视器显示 `已连接，IP: 192.168.x.x`，接着显示 `HTTP(80) + WebSocket(81) 已启动`（而不是一直打印 `...`） |
 | 2 | 手机打开游戏页 | 手机连**家里同一 Wi-Fi** → 浏览器打开 `http://<上面那个IP>/` → 游戏页打开，页顶显示 **v1.4.0**，默认选中「双人联机」 |
+
+> 打不开游戏页先检查：手机连的是不是**访客网络**（如名字带 Guest 的 Wi-Fi）——
+> 访客网络通常隔离局域网设备，搜不到板子。换连主 Wi-Fi 再试。
 | 3 | 建房 | 点「创建房间」→ 显示 6 位房间码（如 `A7K9P2`）+ 二维码正常渲染 |
 | 4 | 第二台手机加入 | 第二台手机连同一 Wi-Fi → 扫码 → 自动进入房间并等待 → **两台手机同时进入游戏画面**（P1 绿、P2 蓝两条蛇出现） |
 | 5 | 对战 | 两台手机分别滑动控制自己的蛇，移动跟手；故意撞墙/撞对方身体 → 输方显示「你输了！」、赢方显示「你赢了！」，P1/P2 计分正常 |
@@ -124,9 +128,9 @@
 
 1. **本地先重新生成网页**：黑色窗口进入代码文件夹 → 运行 `py lan/build.py`
    （确保 `webpage.h` 是最新的，网页随固件一起更新）。
-2. **导出 .bin 文件**：Arduino IDE 打开 `lan/firmware/snake-lan.ino` →
+2. **导出 .bin 文件**：Arduino IDE 打开 `lan/snake-lan/snake-lan.ino` →
    菜单「项目」→「导出已编译的二进制文件」。
-3. **选对文件**：在 `lan/firmware/` 文件夹里找到 **`snake-lan.ino.bin`**
+3. **选对文件**：在 `lan/snake-lan/` 文件夹里找到 **`snake-lan.ino.bin`**
    （如果没看到，检查该目录下的 `build` 子文件夹）。
    > ⚠️ 不要用 `snake-lan.ino.merged.bin`。
    > 理由：`/update` 用的是 ESP32 的 `Update` 库，它往 OTA 应用分区写入**纯应用镜像**；
@@ -177,9 +181,11 @@ ElegantOTA 不用：开源版为 AGPL-3.0，与仓库 MIT 不兼容（2026-10-01
 ```
 lan/
   README.md        ← 本文件
-  build.py         ← 从根目录 index.html 生成 firmware/webpage.h
+  build.py         ← 从根目录 index.html 生成 snake-lan/webpage.h
   .gitignore       ← 忽略生成的 webpage.h
-  firmware/
+  vendor/
+    qrcode-1.4.4.js  ← 二维码库（MIT），构建时内嵌进固件版网页
+  snake-lan/       ← 文件夹与 .ino 同名（Arduino IDE 要求）
     snake-lan.ino  ← USB 串口配网 / HTTP / WebSocket / 房间管理 / /update
     webpage.h      ← 构建产物，不提交
 ```
