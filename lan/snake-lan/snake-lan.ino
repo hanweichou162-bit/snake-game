@@ -461,7 +461,37 @@ void setup() {
   printHelp();
 }
 
+unsigned long lastReconnAttempt = 0;
+
 void loop() {
+  // 运行中 Wi-Fi 断线自动重连（v1.5.0）：先快速重试原网络，
+  // 不行就按开机逻辑重扫两组；每 15 秒一轮，不用人重启板子。
+  if (WiFi.status() != WL_CONNECTED) {
+    if (millis() - lastReconnAttempt > 15000) {
+      lastReconnAttempt = millis();
+      Serial.println("\nWi-Fi 断开，尝试重连…");
+      WiFi.reconnect(); // 快速重试原网络
+      unsigned long t0 = millis();
+      while (WiFi.status() != WL_CONNECTED && millis() - t0 < 5000) {
+        serialCommands();
+        delay(100);
+      }
+      if (WiFi.status() == WL_CONNECTED) {
+        Serial.println("已重连原网络，IP: " + WiFi.localIP().toString());
+      } else if (tryConnect()) {
+        Serial.println("已连上网络" + String(activeProfile) + "，IP: " + WiFi.localIP().toString());
+      } else {
+        Serial.println("重连失败，15 秒后重试（可随时输入 config 重配）。");
+      }
+      // 重连后 IP 可能变化：手机端沿用原有断线提示，点"返回大厅"重进；
+      // 经 snake-game.local 打开的可直接重连，IP 直连的若 IP 变了请按 README 三级查找法。
+    }
+    serialCommands();
+    delay(200);
+    return;
+  }
+  lastReconnAttempt = 0;
+
   ws.loop();
   http.handleClient();
   serialCommands();
