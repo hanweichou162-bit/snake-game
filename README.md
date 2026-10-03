@@ -25,7 +25,7 @@
 
 ## 版本
 
-v1.3.0（见 CHANGELOG.md）
+v1.5.0（见 CHANGELOG.md）
 
 ## 许可证
 

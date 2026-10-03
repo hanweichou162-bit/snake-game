@@ -8,7 +8,7 @@
     lan/snake-lan/webpage.h   （构建产物，不提交仓库；见 lan/.gitignore）
 
 处理：
-  1. 读取 ../index.html（v1.4.0，唯一真相来源）
+  1. 读取 ../index.html（v1.5.0，唯一真相来源）
   2. <!--{{QRCODE_LIB}}--> 占位替换为内嵌 qrcode-generator（MIT，打包进单文件）
   3. /*{{LAN_BUILD}}*/false → /*{{LAN_BUILD}}*/true（固件版默认联机模式）
   4. {{DEVICE_IP}} 保留，由固件 serving 时替换为板子实际 IP

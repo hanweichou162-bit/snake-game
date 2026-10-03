@@ -1,10 +1,12 @@
-// snake-lan.ino — XIAO ESP32S3 贪吃蛇局域网联机服务器（v1.4.0）
+// snake-lan.ino — XIAO ESP32S3 贪吃蛇局域网联机服务器（v1.5.0）
 //
 // 功能：
 //   USB 串口配网（不开 Wi-Fi 热点）/ HTTP(80) 游戏网页 /
 //   WebSocket(81) 房间配对＋消息原样转发 / /update Wi-Fi 无线更新（要密码）
 //
 // 配网：见 lan/README.md 第 4 节。密码在串口输入时不回显、不写日志，只存 NVS。
+// 网络：NVS 存两组 Wi-Fi（网络1家里 / 网络2手机热点），开机扫描后自动连上
+//   能找到的那个（都看到优先网络1）；串口 config 菜单可分别设置。
 // 房间：最多 4 个房间，每房 2 人，共 8 个并发 WebSocket 连接（硬上限）。
 
 #define WEBSOCKETS_SERVER_CLIENT_MAX 8
@@ -18,7 +20,7 @@
 #include <ArduinoJson.h>
 #include "webpage.h"
 
-#define FW_VERSION "v1.4.0"
+#define FW_VERSION "v1.5.0"
 #define MAX_ROOMS 4
 #define ROOM_CODE_LEN 6
 
@@ -26,7 +28,10 @@ Preferences prefs;
 WebServer http(80);
 WebSocketsServer ws(81);
 
-String cfgSsid, cfgPass, cfgOta;
+String cfgSsid1, cfgPass1; // 网络1：家里 Wi-Fi
+String cfgSsid2, cfgPass2; // 网络2：手机热点
+String cfgOta;
+int8_t activeProfile = 0; // 当前连的是网络几（1/2），0=未连接
 
 struct Room {
   String code;
@@ -66,30 +71,113 @@ String readLine(bool echo) {
 }
 
 void printHelp() {
-  Serial.println("可用指令：config=重新配网 / status=查看状态 / help=本帮助");
+  Serial.println("可用指令：config=配网菜单 / status=查看状态 / help=本帮助");
 }
 
-void serialProvision() {
-  Serial.println("\n=== 贪吃蛇联机配网（USB 串口）===");
+// 配置某一组网络（1=家里，2=手机热点）。密码不回显、不写日志。
+bool provisionProfile(int8_t prof) {
+  Serial.print("网络");
+  Serial.print(prof);
+  Serial.println(prof == 1 ? "（家里 Wi-Fi）：" : "（手机热点）：");
   Serial.print("Wi-Fi name: ");
   String ssid = readLine(true);
   Serial.print("Wi-Fi password: ");
   String pass = readLine(false);
   Serial.println("[已隐藏]");
+  if (ssid.length() == 0 || pass.length() == 0) {
+    Serial.println("输入不能为空，取消。");
+    return false;
+  }
+  if (prof == 1) {
+    prefs.putString("ssid1", ssid);
+    prefs.putString("pass1", pass);
+  } else {
+    prefs.putString("ssid2", ssid);
+    prefs.putString("pass2", pass);
+  }
+  // 注意：密码值永不打印、不写日志
+  Serial.println("已保存。");
+  return true;
+}
+
+bool provisionOta() {
   Serial.print("OTA password: ");
   String ota = readLine(false);
   Serial.println("[已隐藏]");
-  if (ssid.length() == 0 || pass.length() == 0 || ota.length() == 0) {
-    Serial.println("输入不能为空，配网取消。");
-    return;
+  if (ota.length() == 0) {
+    Serial.println("输入不能为空，取消。");
+    return false;
   }
-  prefs.putString("ssid", ssid);
-  prefs.putString("pass", pass);
   prefs.putString("ota", ota);
-  // 注意：密码值永不打印、不写日志
+  Serial.println("已保存。");
+  return true;
+}
+
+// 首次配网：必须配网络1＋OTA（不开机就配不了别的）
+void firstProvision() {
+  Serial.println("\n=== 贪吃蛇联机配网（USB 串口）===");
+  Serial.println("先配置网络1（家里 Wi-Fi），以后可用 config 菜单加网络2（手机热点）。");
+  if (!provisionProfile(1)) return; // 失败则返回，下次上电再提示
+  if (!provisionOta()) return;
   Serial.println("已保存，重启中…");
   delay(800);
   ESP.restart();
+}
+
+void configMenu() {
+  Serial.println("\n=== 配网菜单 ===");
+  Serial.println("1) 设置网络1（家里 Wi-Fi）");
+  Serial.println("2) 设置网络2（手机热点）");
+  Serial.println("3) 查看已配置网络（只显示名称，不显示密码）");
+  Serial.println("4) 清除某个网络");
+  Serial.println("5) 修改 OTA 密码");
+  Serial.println("0) 取消");
+  Serial.print("选 0-5: ");
+  String c = readLine(true);
+  c.trim();
+  bool changed = false;
+  if (c == "1") {
+    changed = provisionProfile(1);
+  } else if (c == "2") {
+    changed = provisionProfile(2);
+  } else if (c == "3") {
+    Serial.print("网络1: ");
+    Serial.println(cfgSsid1 == "" ? "（未配置）" : cfgSsid1);
+    Serial.print("网络2: ");
+    Serial.println(cfgSsid2 == "" ? "（未配置）" : cfgSsid2);
+    Serial.println("OTA 密码：已设置（值不显示）");
+  } else if (c == "4") {
+    Serial.print("清除网络1还是网络2（输入 1/2）：");
+    String w = readLine(true);
+    w.trim();
+    if (w == "1") {
+      prefs.remove("ssid1");
+      prefs.remove("pass1");
+      Serial.println("网络1已清除。");
+      changed = true;
+    } else if (w == "2") {
+      prefs.remove("ssid2");
+      prefs.remove("pass2");
+      Serial.println("网络2已清除。");
+      changed = true;
+    } else {
+      Serial.println("取消。");
+    }
+  } else if (c == "5") {
+    changed = provisionOta();
+  } else {
+    Serial.println("取消。");
+  }
+  if (changed) {
+    cfgSsid1 = prefs.getString("ssid1", "");
+    cfgPass1 = prefs.getString("pass1", "");
+    cfgSsid2 = prefs.getString("ssid2", "");
+    cfgPass2 = prefs.getString("pass2", "");
+    cfgOta = prefs.getString("ota", "");
+    Serial.println("重启后生效，重启中…");
+    delay(800);
+    ESP.restart();
+  }
 }
 
 void serialCommands() {
@@ -97,15 +185,20 @@ void serialCommands() {
   String cmd = readLine(true);
   cmd.trim();
   if (cmd == "config") {
-    serialProvision();
-    cfgSsid = prefs.getString("ssid", "");
-    cfgPass = prefs.getString("pass", "");
-    cfgOta = prefs.getString("ota", "");
+    configMenu();
   } else if (cmd == "status") {
     Serial.print("Wi-Fi: ");
-    Serial.println(WiFi.status() == WL_CONNECTED ? "已连接" : "未连接");
+    if (WiFi.status() == WL_CONNECTED && activeProfile > 0) {
+      Serial.print("已连接网络");
+      Serial.println(activeProfile);
+    } else {
+      Serial.println("未连接");
+    }
+    Serial.print("SSID: ");
+    Serial.println(activeProfile == 1 ? cfgSsid1 : (activeProfile == 2 ? cfgSsid2 : "（无）"));
     Serial.print("IP: ");
     Serial.println(WiFi.localIP().toString());
+    Serial.println("mDNS: http://snake-game.local/");
     Serial.print("版本: ");
     Serial.println(FW_VERSION);
   } else if (cmd == "help") {
@@ -218,7 +311,7 @@ void handleRoot() {
 const char UPDATE_HTML[] PROGMEM = R"UPD(
 <!DOCTYPE html><html><head><meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>固件更新 v1.4.0</title></head>
+<title>固件更新 v1.5.0</title></head>
 <body style="font-family:system-ui;padding:24px;max-width:420px;margin:auto">
 <h2>贪吃蛇联机服务 · 固件更新</h2>
 <form method="POST" action="/update" enctype="multipart/form-data">
@@ -229,6 +322,53 @@ const char UPDATE_HTML[] PROGMEM = R"UPD(
 <p style="color:#888;font-size:12px">更新后板子自动重启；游戏网页随固件一起更新。</p>
 </body></html>
 )UPD";
+
+// 试连两组网络：先扫描决定顺序（都看到优先网络1），每组最多 12 秒。
+// 返回 true=连上（activeProfile 置为 1/2），false=都没连上。
+bool tryConnect() {
+  Serial.println("正在扫描 Wi-Fi…");
+  int8_t want = 0;
+  int n = WiFi.scanNetworks();
+  bool seen1 = false, seen2 = false;
+  for (int i = 0; i < n; i++) {
+    String s = WiFi.SSID(i);
+    if (cfgSsid1 != "" && s == cfgSsid1) seen1 = true;
+    if (cfgSsid2 != "" && s == cfgSsid2) seen2 = true;
+  }
+  WiFi.scanDelete();
+  if (seen1) want = 1;
+  else if (seen2) want = 2;
+
+  // 扫描没看到时，按 1→2 顺序各试一次（SSID 可能隐藏）
+  int8_t order[2] = {(int8_t)(want == 2 ? 2 : 1), (int8_t)(want == 2 ? 1 : 2)};
+  for (int8_t k = 0; k < 2; k++) {
+    int8_t prof = order[k];
+    String ssid = (prof == 1) ? cfgSsid1 : cfgSsid2;
+    String pass = (prof == 1) ? cfgPass1 : cfgPass2;
+    if (ssid == "") continue;
+    Serial.print("正在连接网络");
+    Serial.print(prof);
+    Serial.print("（");
+    Serial.print(ssid);
+    Serial.print("）");
+    WiFi.begin(ssid.c_str(), pass.c_str());
+    unsigned long t0 = millis();
+    unsigned long lastDot = 0;
+    while (WiFi.status() != WL_CONNECTED && millis() - t0 < 12000) {
+      // 连不上时：串口可输 config 重配（改完自动重启）
+      serialCommands();
+      if (millis() - lastDot > 500) { Serial.print("."); lastDot = millis(); }
+      delay(50);
+    }
+    if (WiFi.status() == WL_CONNECTED) {
+      activeProfile = prof;
+      return true;
+    }
+    Serial.println("\n网络" + String(prof) + " 连接超时，换下一个。");
+    WiFi.disconnect();
+  }
+  return false;
+}
 
 void setup() {
   Serial.begin(115200);
@@ -245,25 +385,37 @@ void setup() {
   }
 
   prefs.begin("snakelan", false);
-  cfgSsid = prefs.getString("ssid", "");
-  cfgPass = prefs.getString("pass", "");
+  // v1.4.0 单组配置迁移：旧 ssid/pass 转为网络1
+  cfgSsid1 = prefs.getString("ssid1", "");
+  if (cfgSsid1 == "") {
+    String oldS = prefs.getString("ssid", "");
+    if (oldS != "") {
+      prefs.putString("ssid1", oldS);
+      prefs.putString("pass1", prefs.getString("pass", ""));
+      prefs.remove("ssid");
+      prefs.remove("pass");
+      cfgSsid1 = oldS;
+      Serial.println("旧单组配置已迁移为网络1。");
+    }
+  }
+  cfgPass1 = prefs.getString("pass1", "");
+  cfgSsid2 = prefs.getString("ssid2", "");
+  cfgPass2 = prefs.getString("pass2", "");
   cfgOta = prefs.getString("ota", "");
-  if (cfgSsid == "") {
-    serialProvision(); // 无配置：进串口配网（不返回，直接重启）
+  if (cfgSsid1 == "") {
+    firstProvision(); // 无配置：进串口配网（成功则重启，不返回）
   }
 
   Serial.println("\n贪吃蛇联机服务 " FW_VERSION);
-  WiFi.mode(WIFI_STA); // 只做 Station，永不开热点
-  WiFi.begin(cfgSsid.c_str(), cfgPass.c_str());
-  Serial.print("正在连接 Wi-Fi");
-  while (WiFi.status() != WL_CONNECTED) {
-    // 连不上时：串口可输 config 重配；不 fallback 到热点
-    serialCommands();
-    static unsigned long lastDot = 0;
-    if (millis() - lastDot > 500) { Serial.print("."); lastDot = millis(); }
-    delay(50);
+  WiFi.mode(WIFI_STA); // 只做 Station，永不开 Wi-Fi 热点
+
+  // 两组都连不上：每 60 秒重试（热点晚开也能自己连上），随时可输 config
+  while (!tryConnect()) {
+    Serial.println("\n两个网络都连不上，60 秒后重试（可随时输入 config 重配）。");
+    unsigned long wt0 = millis();
+    while (millis() - wt0 < 60000) { serialCommands(); delay(100); }
   }
-  Serial.println("\n已连接，IP: " + WiFi.localIP().toString());
+  Serial.println("\n已连接网络" + String(activeProfile) + "，IP: " + WiFi.localIP().toString());
 
   if (MDNS.begin("snake-game")) Serial.println("mDNS: http://snake-game.local/");
 
@@ -309,7 +461,37 @@ void setup() {
   printHelp();
 }
 
+unsigned long lastReconnAttempt = 0;
+
 void loop() {
+  // 运行中 Wi-Fi 断线自动重连（v1.5.0）：先快速重试原网络，
+  // 不行就按开机逻辑重扫两组；每 15 秒一轮，不用人重启板子。
+  if (WiFi.status() != WL_CONNECTED) {
+    if (millis() - lastReconnAttempt > 15000) {
+      lastReconnAttempt = millis();
+      Serial.println("\nWi-Fi 断开，尝试重连…");
+      WiFi.reconnect(); // 快速重试原网络
+      unsigned long t0 = millis();
+      while (WiFi.status() != WL_CONNECTED && millis() - t0 < 5000) {
+        serialCommands();
+        delay(100);
+      }
+      if (WiFi.status() == WL_CONNECTED) {
+        Serial.println("已重连原网络，IP: " + WiFi.localIP().toString());
+      } else if (tryConnect()) {
+        Serial.println("已连上网络" + String(activeProfile) + "，IP: " + WiFi.localIP().toString());
+      } else {
+        Serial.println("重连失败，15 秒后重试（可随时输入 config 重配）。");
+      }
+      // 重连后 IP 可能变化：手机端沿用原有断线提示，点"返回大厅"重进；
+      // 经 snake-game.local 打开的可直接重连，IP 直连的若 IP 变了请按 README 三级查找法。
+    }
+    serialCommands();
+    delay(200);
+    return;
+  }
+  lastReconnAttempt = 0;
+
   ws.loop();
   http.handleClient();
   serialCommands();
