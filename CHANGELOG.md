@@ -1,5 +1,22 @@
 # Changelog
 
+## [1.4.0] - 2026-10-03
+
+### 新增
+
+- 局域网联机：手机「双人联机」模式，XIAO ESP32S3 做同 Wi-Fi 服务器（HTTP 80 游戏页＋WebSocket 81 转发），房主手机显示二维码，朋友扫码加入同房对战
+- 固件：USB 串口配网（不开热点，密码不回显）、4 房间×2 人上限、/update Wi-Fi 无线更新（OTA 密码鉴权）
+- lan/build.py：从根目录 index.html 生成固件内嵌网页；lan/README.md：刷机/更新步骤文档
+
+### 修改
+
+- 根目录 index.html：手机端模式列表增加「双人联机」，固件版默认联机模式；公开 Pages 版隐藏联机选项
+- 库版本钉死：esp32 core 3.3.12、WebSockets 2.7.2、ArduinoJson 7.4.3
+
+### 修正
+
+- 修 wsSend 编译错误（WebSockets 2.7.2 的 sendTXT 只要非 const String&）
+
 ## [1.3.0] - 2026-10-01
 
 ### 新增
